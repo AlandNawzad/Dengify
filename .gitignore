@@ -1,0 +1,21 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment folders
+.venv/
+venv/
+
+# dotenv files containing secrets
+.env
+
+# IDE/editor settings
+.idea/
+.vscode/
+
+# macOS Finder files
+.DS_Store
+
+# Logs and temp files
+*.log
