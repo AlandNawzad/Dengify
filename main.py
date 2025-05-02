@@ -2,13 +2,14 @@ import os
 import re
 import subprocess
 import asyncio
+import time
 
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import (
     ApplicationBuilder,
-    MessageHandler,
     CommandHandler,
+    MessageHandler,
     ContextTypes,
     filters,
 )
@@ -32,15 +33,15 @@ def embed_metadata(mp3_path, title, artist, album):
 
 def download_mp3_with_art(youtube_url: str, output_filename: str):
     ydl_opts = {
-        "format":           "bestaudio/best",
-        "outtmpl":          "song.%(ext)s",
-        "retries":          10,
-        "socket_timeout":   15,
-        "extractor_retries":5,
+        "format": "bestaudio/best",
+        "outtmpl": "song.%(ext)s",
+        "retries": 10,
+        "socket_timeout": 10,
+        "extractor_retries": 3,
         "postprocessors": [{
-            "key":            "FFmpegExtractAudio",
+            "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
-            "preferredquality":"192",
+            "preferredquality": "192",
         }],
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -76,7 +77,7 @@ def download_mp3_with_art(youtube_url: str, output_filename: str):
     embed_metadata(output_filename, title, artist, album)
     return title, artist
 
-# 2) /start handler (from the original version)
+# 2) /start handler with original greeting
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "سڵاو\n"
@@ -85,7 +86,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "❗ تکایە لینکی گۆرانی یوتیوبەکەت بنێرە"
     )
 
-# 3) Main message handler (with original responses)
+# 3) Main message handler with original responses
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text or ""
     m = re.search(
@@ -97,7 +98,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "❌ تکایە تەنها لینکی یوتیوب بنێرە"
         )
 
-    url     = m.group(1)
+    url = m.group(1)
     chat_id = update.effective_chat.id
 
     await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
@@ -119,19 +120,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 title=title,
                 performer=artist
             )
-            await asyncio.wait_for(send_coro, timeout=300)
+            await asyncio.wait_for(send_coro, timeout=120)
 
         await update.message.reply_text(
             "✅ گۆرانی بەسەرکەوتووی داونلۆد کرا"
         )
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+        await update.message.reply_text(f"❌ هەڵە: {e}")
     finally:
         for fn in ("song.mp3", "cover.jpg", "final.mp3"):
             if os.path.exists(fn):
                 os.remove(fn)
 
-# 4) Set up and run
+# 4) Build and run with automatic restarts
 if __name__ == "__main__":
     app = (
         ApplicationBuilder()
@@ -142,4 +143,10 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("🤖 DengifyBot is running…")
-    app.run_polling()
+    # Restart polling if it crashes
+    while True:
+        try:
+            app.run_polling()
+        except Exception as err:
+            print(f"⚠️ Bot crashed: {err}\nRestarting in 5s…")
+            time.sleep(5)
