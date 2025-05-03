@@ -107,7 +107,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # inform user
     await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
-    await update.message.reply_text("🎵 تکایە چاوت لێ بکە تا گۆرانیەکەت داونلۆد دەکرێت…")
+    await update.message.reply_text("🎵 تکایە جاوەڕوان بە تاوەکو گۆرانیەکەت ئامادە دەکرێت…")
 
     try:
         # create isolated temp dir for this request
