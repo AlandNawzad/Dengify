@@ -18,19 +18,21 @@ from mutagen.easyid3 import EasyID3
 from mutagen.mp3 import MP3
 from dotenv import load_dotenv
 
-# 1) Load your bot token from .env
+# Load your bot token from .env
 load_dotenv()
 BOT_TOKEN = os.getenv("DENGIFY_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("DENGIFY_TOKEN is not set in .env")
 
+# Embed title, artist, and album info into MP3
 def embed_metadata(mp3_path, title, artist, album):
     audio = MP3(mp3_path, ID3=EasyID3)
-    audio["title"]  = title
+    audio["title"] = title
     audio["artist"] = artist
-    audio["album"]  = album
+    audio["album"] = album
     audio.save()
 
+# Download YouTube audio, convert to MP3, embed cover and metadata
 def download_mp3_with_art(youtube_url: str, output_filename: str):
     ydl_opts = {
         "format": "bestaudio/best",
@@ -44,27 +46,24 @@ def download_mp3_with_art(youtube_url: str, output_filename: str):
             "preferredquality": "192",
         }],
     }
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(youtube_url, download=True)
 
-    title     = info.get("title", "Unknown Title")
-    artist    = info.get("uploader", "Unknown Artist")
-    album     = info.get("channel", artist)
+    title = info.get("title", "Unknown Title")
+    artist = info.get("uploader", "Unknown Artist")
+    album = info.get("channel", artist)
     thumbnail = info.get("thumbnail")
 
-    # Download cover.jpg
-    subprocess.run(
-        ["curl", "-L", thumbnail, "-o", "cover.jpg"],
-        check=True
-    )
+    # Download thumbnail image
+    subprocess.run(["curl", "-L", thumbnail, "-o", "cover.jpg"], check=True)
 
-    # Embed cover into final.mp3
+    # Embed cover into MP3
     subprocess.run([
         "ffmpeg", "-y",
         "-i", "song.mp3",
         "-i", "cover.jpg",
-        "-map", "0:a",
-        "-map", "1:v",
+        "-map", "0:a", "-map", "1:v",
         "-c:a", "copy",
         "-c:v", "mjpeg",
         "-id3v2_version", "3",
@@ -77,7 +76,7 @@ def download_mp3_with_art(youtube_url: str, output_filename: str):
     embed_metadata(output_filename, title, artist, album)
     return title, artist
 
-# 2) /start handler with original greeting
+# /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "سڵاو\n"
@@ -86,25 +85,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "❗ تکایە لینکی گۆرانی یوتیوبەکەت بنێرە"
     )
 
-# 3) Main message handler with original responses
+# Message handler for YouTube links
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text or ""
-    m = re.search(
-        r"(https?://(?:youtu\.be/|youtube\.com/watch\?v=)[^&\s]+)",
-        text
-    )
+    m = re.search(r"(https?://(?:youtu\.be/|youtube\.com/watch\?v=)[^&\s]+)", text)
     if not m:
-        return await update.message.reply_text(
-            "❌ تکایە تەنها لینکی یوتیوب بنێرە"
-        )
+        return await update.message.reply_text("❌ تکایە تەنها لینکی یوتیوب بنێرە")
 
     url = m.group(1)
     chat_id = update.effective_chat.id
 
     await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
-    await update.message.reply_text(
-        "🎵 تکایە جاوەڕوانبە تا گۆرانیەکەت داونلۆد دەکرێت…"
-    )
+    await update.message.reply_text("🎵 تکایە جاوەڕوانبە تا گۆرانیەکەت داونلۆد دەکرێت…")
 
     try:
         output_file = "final.mp3"
@@ -122,28 +114,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await asyncio.wait_for(send_coro, timeout=120)
 
-        await update.message.reply_text(
-            "✅ گۆرانی بەسەرکەوتووی داونلۆد کرا"
-        )
+        await update.message.reply_text("✅ گۆرانی بەسەرکەوتووی داونلۆد کرا")
+
     except Exception as e:
         await update.message.reply_text(f"❌ هەڵە: {e}")
+
     finally:
         for fn in ("song.mp3", "cover.jpg", "final.mp3"):
             if os.path.exists(fn):
                 os.remove(fn)
 
-# 4) Build and run with automatic restarts
+# Start the bot
 if __name__ == "__main__":
-    app = (
-        ApplicationBuilder()
-        .token(BOT_TOKEN)
-        .build()
-    )
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("🤖 DengifyBot is running…")
-    # Restart polling if it crashes
     while True:
         try:
             app.run_polling()
