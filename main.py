@@ -13,18 +13,21 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+
 import yt_dlp
 from mutagen.easyid3 import EasyID3
 from mutagen.mp3 import MP3
 from dotenv import load_dotenv
+from PIL import Image, ImageFilter
 
-# Load your bot token from .env
+
+# Load bot token
 load_dotenv()
 BOT_TOKEN = os.getenv("DENGIFY_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("DENGIFY_TOKEN is not set in .env")
 
-
+# Metadata embedder
 def embed_metadata(mp3_path: str, title: str, artist: str, album: str):
     audio = MP3(mp3_path, ID3=EasyID3)
     audio["title"] = title
@@ -32,15 +35,40 @@ def embed_metadata(mp3_path: str, title: str, artist: str, album: str):
     audio["album"] = album
     audio.save()
 
+# Pad image to square (only if needed)
+def pad_to_square(image_path: str, output_path: str):
+    with Image.open(image_path) as img:
+        width, height = img.size
 
+        if width == height:
+            img.save(output_path, format="JPEG")
+            return
+
+        # Create blurred background
+        max_dim = max(width, height)
+        blurred_bg = img.resize((max_dim, max_dim)).filter(ImageFilter.GaussianBlur(15))
+
+
+        # Create output canvas
+        result = Image.new("RGB", (max_dim, max_dim))
+        result.paste(blurred_bg, (0, 0))
+
+        # Center paste the original image
+        x = (max_dim - width) // 2
+        y = (max_dim - height) // 2
+        result.paste(img, (x, y))
+
+        result.save(output_path, format="JPEG")
+
+
+# Download YouTube MP3 and thumbnail
 def download_mp3_with_art(youtube_url: str, workdir: str):
-    # prepare file paths
     song_template = os.path.join(workdir, "song.%(ext)s")
     mp3_path = os.path.join(workdir, "song.mp3")
-    cover_path = os.path.join(workdir, "cover.jpg")
+    raw_cover_path = os.path.join(workdir, "raw_cover.jpg")
+    square_cover_path = os.path.join(workdir, "cover.jpg")
     final_path = os.path.join(workdir, "final.mp3")
 
-    # download & extract audio
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": song_template,
@@ -61,14 +89,13 @@ def download_mp3_with_art(youtube_url: str, workdir: str):
     album = info.get("channel", artist)
     thumbnail = info.get("thumbnail")
 
-    # download thumbnail
-    subprocess.run(["curl", "-L", thumbnail, "-o", cover_path], check=True)
+    subprocess.run(["curl", "-L", thumbnail, "-o", raw_cover_path], check=True)
+    pad_to_square(raw_cover_path, square_cover_path)
 
-    # embed cover into MP3
     subprocess.run([
         "ffmpeg", "-y",
         "-i", mp3_path,
-        "-i", cover_path,
+        "-i", square_cover_path,
         "-map", "0:a",
         "-map", "1:v",
         "-c:a", "copy",
@@ -80,10 +107,8 @@ def download_mp3_with_art(youtube_url: str, workdir: str):
         final_path
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
 
-    # embed metadata tags
     embed_metadata(final_path, title, artist, album)
-    return title, artist, final_path, cover_path
-
+    return title, artist, final_path, square_cover_path
 
 # /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -94,8 +119,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "❗ تکایە لینکی گۆرانی یوتیوبەکەت بنێرە"
     )
 
-
-# handler for YouTube links
+# Message handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text or ""
     m = re.search(r"(https?://(?:youtu\.be/|youtube\.com/watch\?v=)[^&\s]+)", text)
@@ -105,14 +129,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = m.group(1)
     chat_id = update.effective_chat.id
 
-    # inform user
     await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
     await update.message.reply_text("🎵 تکایە جاوەڕوان بە تاوەکو گۆرانیەکەت ئامادە دەکرێت…")
 
     try:
-        # create isolated temp dir for this request
         with tempfile.TemporaryDirectory() as tmpdir:
-            # offload blocking download to thread
             title, artist, final_path, cover_path = await asyncio.to_thread(
                 download_mp3_with_art, url, tmpdir
             )
@@ -134,8 +155,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ هەڵە: {e}")
 
-
-# main entrypoint
+# Entrypoint
 if __name__ == "__main__":
     app = (
         ApplicationBuilder()
