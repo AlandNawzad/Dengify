@@ -2,3 +2,4 @@ python-telegram-bot
 yt-dlp
 mutagen
 python-dotenv
+Pillow
